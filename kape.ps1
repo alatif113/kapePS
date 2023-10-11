@@ -3,13 +3,13 @@
     Run Kroll Artifact Parser And Extractor (KAPE)
 
 .DESCRIPTION
-    The kape.ps1 script optionally downloads KAPE binaries and runs KAPE with pre-defined targets and modules
+    The kape.ps1 script downloads KAPE binaries and runs KAPE with pre-defined targets and modules
 
 .LINK 
     https://www.kroll.com/en/services/cyber-risk/incident-response-litigation-support/kroll-artifact-parser-extractor-kape
 
 .Parameter RepoLocation 
-    Specifies the repository location of KAPE binaries. If no location is defined, the script assumes binaries exist locally
+    Specifies the repository location of KAPE binaries
 
 .Parameter Targets
     Specifies a comma separated list of KAPE Targets
@@ -17,6 +17,10 @@
 .Parameter Modules
     Specifies a comma separated list of KAPE Modules
 #>
+
+#########################################
+# Parameters
+#########################################
 
 param(
     [Parameter(Mandatory)]
@@ -32,15 +36,23 @@ param(
     [string]$Modules
 )
 
-$global:KAPE_WORKING_DIR = Convert-Path $([System.IO.Path]::Combine($PWD, "kape"))
-$global:KAPE_INSTALL_DIR = [System.IO.Path]::Combine($KAPE_WORKING_DIR, "kape-master")
-$global:KAPE_TEMP_ARCHIVE = [System.IO.Path]::Combine($KAPE_WORKING_DIR, "kape.zip")
-$global:KAPE_VERSION_PATH = [System.IO.Path]::Combine($KAPE_INSTALL_DIR, "version")
-$global:KAPE_EXE_PATH = [System.IO.Path]::Combine($KAPE_INSTALL_DIR, "kape.exe")
-$global:KAPE_TSOURCE = "C:"
-$global:KAPE_TDEST = [System.IO.Path]::Combine($KAPE_WORKING_DIR, "targets")
-$global:KAPE_MDEST = [System.IO.Path]::Combine($KAPE_WORKING_DIR, "modules")
-$global:KAPE_CLI_PATH = [System.IO.Path]::Combine($KAPE_INSTALL_DIR, "_kape.cli")
+#########################################
+# Global Variables
+#########################################
+
+$currentPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($PWD)
+$global:KAPE_WORKING_DIR = [System.IO.Path]::Combine($currentPath, "kape")              # Working directory
+$global:KAPE_INSTALL_DIR = [System.IO.Path]::Combine($KAPE_WORKING_DIR, "kape-master")  # KAPE package directory
+$global:KAPE_TEMP_ARCHIVE = [System.IO.Path]::Combine($KAPE_WORKING_DIR, "kape.zip")    # Temporary name for KAPE zip file 
+$global:KAPE_VERSION_PATH = [System.IO.Path]::Combine($KAPE_INSTALL_DIR, "version")     # Path to KAPE version file
+$global:KAPE_EXE_PATH = [System.IO.Path]::Combine($KAPE_INSTALL_DIR, "kape.exe")        # Path to KAPE exe
+$global:KAPE_TSOURCE = "C:"                                                             # Source drive to search for KAPE targets
+$global:KAPE_TDEST = [System.IO.Path]::Combine($KAPE_WORKING_DIR, "targets")            # Directory to store KAPE target outupts
+$global:KAPE_MDEST = [System.IO.Path]::Combine($KAPE_WORKING_DIR, "modules")            # Directory to store KAPE module outputs
+
+#########################################
+# Functions
+#########################################
 
 function WriteLog {
     param(
@@ -112,6 +124,10 @@ function GetKAPE {
     }
 }
 
+#########################################
+# Main
+#########################################
+
 # Disable progress bars from writing to the standard output
 $global:ProgressPreference = 'SilentlyContinue'
 
@@ -145,7 +161,7 @@ if($PSBoundParameters.ContainsKey('Modules')) {
 WriteLog -Severity "Info" -Message "Starting KAPE as background job with args: $kapeArgs"
 
 # Start KAPE as a background job
-Start-Process $KAPE_EXE_PATH -ArgumentList $kapeArgs
+Start-Process $KAPE_EXE_PATH -WindowStyle Hidden -ArgumentList $kapeArgs
 
 # Wait 10 seconds
 Start-Sleep -Seconds 10
