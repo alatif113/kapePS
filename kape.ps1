@@ -11,20 +11,11 @@
 .Parameter RepoLocation 
     Specifies the repository location of KAPE binaries. If no location is defined, the script assumes binaries exist locally
 
-.Parameter TargMods
-    Specifies a JSON array of Targets and Modules to run. Each array item will trigger a new parallel instance of KAPE.
-    Format:
-    '[
-        {
-            "targets": ["target1, "target2", ...], 
-            "modules": ["module1", "module2", ...]
-        }, 
-        {
-            "targets": ["target1, "target2", ...], 
-            "modules": ["module1", "module2", ...]
-        },
-        ...
-    ]'
+.Parameter Targets
+    Specifies a comma separated list of KAPE Targets
+
+.Parameter Modules
+    Specifies a comma separated list of KAPE Modules
 #>
 
 param(
@@ -35,7 +26,10 @@ param(
     [double]$Version,
 
     [Parameter(Mandatory)]
-    [string]$TargMods
+    [string]$Targets,
+
+    [Parameter()]
+    [string]$Modules
 )
 
 $global:KAPE_WORKING_DIR = Convert-Path $([System.IO.Path]::Combine($PWD, "kape"))
@@ -65,12 +59,18 @@ function WriteLog {
     #$logFilePath = [System.IO.Path]::Combine($PWD, "kapelog.json")
     #$LogObject | ConvertTo-Json -Compress | Out-File -FilePath $logFilePath -Append
     
-    Write-Host "$($LogObject.Timestamp) Severity=$($LogObject.Severity) Message=$($LogObject.Message)"
+    Write-Host "$($LogObject.Timestamp) $($LogObject.Severity) $($LogObject.Message)"
+}
+
+$currentPrincipal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
+if (-not($currentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator))) {
+    WriteLog -Severity "Error" -Message "Administrative privileges are required to run KAPE, exiting."
+    exit 1
 }
 
 function CreateTempEnv {
     if (Test-Path $KAPE_WORKING_DIR) {
-        WriteLog -Severity "Warn" -Message "No need to create a temp working directory. $KAPE_WORKING_DIR already exists."
+        WriteLog -Severity "Info" -Message "No need to create a temp working directory. $KAPE_WORKING_DIR already exists."
     } else {
         New-Item -ItemType Directory -Force -Path $KAPE_WORKING_DIR | Out-Null
         WriteLog -Severity "Info" -Message "Created working directory $KAPE_WORKING_DIR."
@@ -87,13 +87,29 @@ function GetKAPE {
     }
 
     # Download KAPE from remote location
+    WriteLog -Severity "Info" -Message "Downloading KAPE from $RepoLocation"
+
     Invoke-WebRequest -Uri $RepoLocation -OutFile $KAPE_TEMP_ARCHIVE
-    WriteLog -Severity "Info" -Message "Downloading KAPE from $RepoLocation to $KAPE_TEMP_ARCHIVE"
+
+    if ($(Test-Path -Path $KAPE_TEMP_ARCHIVE)) {
+        WriteLog -Severity "Info" -Message "Downloaded KAPE to to $KAPE_TEMP_ARCHIVE"
+    } else {
+        WriteLog -Severity "Error" -Message "Error downloading KAPE to to $KAPE_TEMP_ARCHIVE"
+        exit 1
+    }
 
     # Exapnd KAPE zip
+    WriteLog -Severity "Info" -Message "Extracting $KAPE_TEMP_ARCHIVE"
+
     Expand-Archive -Path $KAPE_TEMP_ARCHIVE -DestinationPath $KAPE_WORKING_DIR -Force
-    Remove-Item -Path $KAPE_TEMP_ARCHIVE
-    WriteLog -Severity "Info" -Message "Unzipped $KAPE_TEMP_ARCHIVE to $KAPE_WORKING_DIR"
+
+    if ($(Test-Path -Path $KAPE_WORKING_DIR)) {
+        WriteLog -Severity "Info" -Message "Extracted KAPE to $KAPE_INSTALL_DIR"
+        Remove-Item -Path $KAPE_TEMP_ARCHIVE
+    } else {
+        WriteLog -Severity "Error" -Message "Error extracting KAPE to $KAPE_WORKING_DIR"
+        exit 1
+    }
 }
 
 # Disable progress bars from writing to the standard output
@@ -118,23 +134,29 @@ elseif ($PSBoundParameters.ContainsKey('Version')) {
     WriteLog -Severity "Info" -Message "Using existing installation of KAPE."
 }
 
-# Parse Targets and Modules
-try {
-    $targModsObj = $TargMods | ConvertFrom-Json
-} catch {
-    WriteLog -Severity "Info" -Message "Invalid JSON object: $TargMods"
+# Create argument string to kape.exe
+$kapeArgs = "--tsource $KAPE_TSOURCE --tdest $KAPE_TDEST --target $Targets --tflush"
+
+# Append module arguments if Modules were declared
+if($PSBoundParameters.ContainsKey('Modules')) {
+    $kapeArgs = "$kapeArgs --mdest $KAPE_MDEST --module $Modules --mflush"
 }
 
-New-Item -Path $KAPE_INSTALL_DIR -Name "_kape.cli" -ItemType "file" -Value "" -Force
-ForEach ($obj in $targModsObj) {
-    $kapeArgs = "--tsource $KAPE_TSOURCE --tdest $KAPE_TDEST --target $($obj.targets -join ',') --module $($obj.modules -join ',') --mdest $KAPE_MDEST"
-    Add-Content -Path $KAPE_CLI_PATH -Value $kapeArgs
-    WriteLog -Severity "Info" -Message "Adding arguments to ${KAPE_CLI_PATH}: $kapeArgs"
-}
+WriteLog -Severity "Info" -Message "Starting KAPE as background job with args: $kapeArgs"
 
-WriteLog -Severity "Info" -Message "Running KAPE from $KAPE_EXE_PATH"
-Start-Process $KAPE_EXE_PATH
+# Start KAPE as a background job
+Start-Process $KAPE_EXE_PATH -ArgumentList $kapeArgs
+
+# Wait 10 seconds
+Start-Sleep -Seconds 10
+
+# Check if ConsoleLog.txt file has been created
+$files = @(Get-ChildItem -Path $KAPE_INSTALL_DIR,$KAPE_TDEST -Filter *_ConsoleLog.txt -ErrorAction SilentlyContinue)
+if ($files.length -eq 0) {
+    WriteLog -Severity "Error" -Message "ConsoleLog.txt could not be found, something may have went wrong."
+} else {
+    WriteLog -Severity "Info" -Message "KAPE is logging to $($files.Name)"
+}
 
 # Enable progress bars to write to the standard output
 $global:ProgressPreference = 'Continue'
-cd ..
