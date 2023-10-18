@@ -11,11 +11,25 @@
 .Parameter RepoLocation 
     Specifies the repository location of KAPE binaries
 
+.Parameter Verision
+    Specifies the version of KAPE required based on the version.txt file
+
+.Parameter Drive
+    Specifies the source drive to query and collect artifacts from.
+    Default Value: C:
+
+.Parameter Container
+    Specifies the type of container to collect artifacts within: vhd, vhdx, or zip. 
+    Default Value: zip 
+
 .Parameter Targets
     Specifies a comma separated list of KAPE Targets
 
 .Parameter Modules
     Specifies a comma separated list of KAPE Modules
+
+.Parameter AsBackgroundJob
+    Specifies whether KAPE should run as a background job
 #>
 
 #########################################
@@ -29,24 +43,34 @@ param(
     [Parameter()]
     [double]$Version,
 
+    [Parameter()]
+    [string]$Drive = "C:",
+
+    [Parameter()]
+    [string]$Container = "zip",
+
     [Parameter(Mandatory)]
     [string]$Targets,
 
     [Parameter()]
-    [string]$Modules
+    [string]$Modules,
+
+    [Parameter()]
+    [switch]$AsBackgroundJob
 )
 
 #########################################
 # Global Variables
 #########################################
 
-$currentPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($PWD)
-$global:KAPE_WORKING_DIR = [System.IO.Path]::Combine($currentPath, "kape")              # Working directory
+$ROOT = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath("C:")
+
+$global:HOSTNAME = [System.Net.Dns]::GetHostName()                                      # Current host
+$global:KAPE_WORKING_DIR = [System.IO.Path]::Combine($ROOT, "KAPE")                     # Working directory
 $global:KAPE_INSTALL_DIR = [System.IO.Path]::Combine($KAPE_WORKING_DIR, "kape-master")  # KAPE package directory
 $global:KAPE_TEMP_ARCHIVE = [System.IO.Path]::Combine($KAPE_WORKING_DIR, "kape.zip")    # Temporary name for KAPE zip file 
 $global:KAPE_VERSION_PATH = [System.IO.Path]::Combine($KAPE_INSTALL_DIR, "version")     # Path to KAPE version file
 $global:KAPE_EXE_PATH = [System.IO.Path]::Combine($KAPE_INSTALL_DIR, "kape.exe")        # Path to KAPE exe
-$global:KAPE_TSOURCE = "C:"                                                             # Source drive to search for KAPE targets
 $global:KAPE_TDEST = [System.IO.Path]::Combine($KAPE_WORKING_DIR, "targets")            # Directory to store KAPE target outupts
 $global:KAPE_MDEST = [System.IO.Path]::Combine($KAPE_WORKING_DIR, "modules")            # Directory to store KAPE module outputs
 
@@ -88,7 +112,7 @@ function CreateTempEnv {
         WriteLog -Severity "Info" -Message "Created working directory $KAPE_WORKING_DIR."
     }
 
-    Set-Location $KAPE_WORKING_DIR
+    #Set-Location $KAPE_WORKING_DIR
 }
 
 function GetKAPE {
@@ -151,17 +175,21 @@ elseif ($PSBoundParameters.ContainsKey('Version')) {
 }
 
 # Create argument string to kape.exe
-$kapeArgs = "--tsource $KAPE_TSOURCE --tdest $KAPE_TDEST --target $Targets --tflush"
+$kapeArgs = "--tsource $Drive --tdest $KAPE_TDEST --target $Targets --tflush --$Container $HOSTNAME"
 
 # Append module arguments if Modules were declared
 if($PSBoundParameters.ContainsKey('Modules')) {
-    $kapeArgs = "$kapeArgs --mdest $KAPE_MDEST --module $Modules --mflush"
+    $kapeArgs = "$kapeArgs --mdest $KAPE_MDEST --module $Modules --mflush --zm"
 }
 
 WriteLog -Severity "Info" -Message "Starting KAPE as background job with args: $kapeArgs"
 
-# Start KAPE as a background job
-Start-Process $KAPE_EXE_PATH -WindowStyle Hidden -ArgumentList $kapeArgs
+# Run KAPE
+if ($AsBackgroundJob) {
+    Start-Process $KAPE_EXE_PATH -WindowStyle Hidden -ArgumentList $kapeArgs
+} else {
+    Start-Process $KAPE_EXE_PATH -Wait -NoNewWindow -ArgumentList $kapeArgs
+}
 
 # Wait 10 seconds
 Start-Sleep -Seconds 10
