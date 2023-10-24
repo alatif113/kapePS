@@ -9,24 +9,27 @@
     https://www.kroll.com/en/services/cyber-risk/incident-response-litigation-support/kroll-artifact-parser-extractor-kape
 
 .Parameter RepoLocation 
-    Specifies the repository location of KAPE binaries
+    [Required] Specifies the repository location of KAPE binaries
 
-.Parameter Verision
-    Specifies the version of KAPE required based on the version.txt file
+.Parameter Version
+    [Optional] Specifies the version of KAPE required based on the version.txt file
 
 .Parameter Drive
-    Specifies the source drive to query and collect artifacts from.
+    [Optional] Specifies the source drive to query and collect artifacts from.
     Default Value: C:
 
 .Parameter Container
-    Specifies the type of container to collect artifacts within: vhd, vhdx, or zip. 
+    [Optional] Specifies the type of container to collect artifacts within: vhd, vhdx, or zip. 
     Default Value: zip 
 
+.Parameter Password
+    [Optional] Specifies that zip files should be encrypted using this password
+
 .Parameter Targets
-    Specifies a comma separated list of KAPE Targets
+    [Required] Specifies a comma separated list of KAPE Targets
 
 .Parameter Modules
-    Specifies a comma separated list of KAPE Modules
+    [Required] Specifies a comma separated list of KAPE Modules
 
 .Parameter AsBackgroundJob
     Specifies whether KAPE should run as a background job
@@ -47,7 +50,11 @@ param(
     [string]$Drive = "C:",
 
     [Parameter()]
+    [ValidateSet("zip", "vhd", "vhdx")]
     [string]$Container = "zip",
+
+    [Parameter()]
+    [string]$Password,
 
     [Parameter(Mandatory)]
     [string]$Targets,
@@ -80,39 +87,19 @@ $global:KAPE_MDEST = [System.IO.Path]::Combine($KAPE_WORKING_DIR, "modules")    
 
 function WriteLog {
     param(
-        [ValidateSet('Info', 'Warn', 'Error', 'Start', 'End', IgnoreCase = $false)]
+        [ValidateSet('Info', 'Warn', 'Error', IgnoreCase = $false)]
         [string]$Severity = "Info",
         [Parameter(Mandatory = $true)]
         [string]$Message
     )
-
-    $LogObject = [PSCustomObject]@{
-        Timestamp = Get-Date
-        Severity  = $Severity
-        Message   = $Message
-    }
-
-    #$logFilePath = [System.IO.Path]::Combine($PWD, "kapelog.json")
-    #$LogObject | ConvertTo-Json -Compress | Out-File -FilePath $logFilePath -Append
     
-    Write-Host "$($LogObject.Timestamp) $($LogObject.Severity) $($LogObject.Message)"
+    Write-Host "$(Get-Date) $Severity $Message"
 }
 
 $currentPrincipal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
 if (-not($currentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator))) {
     WriteLog -Severity "Error" -Message "Administrative privileges are required to run KAPE, exiting."
     exit 1
-}
-
-function CreateTempEnv {
-    if (Test-Path $KAPE_WORKING_DIR) {
-        WriteLog -Severity "Info" -Message "No need to create a temp working directory. $KAPE_WORKING_DIR already exists."
-    } else {
-        New-Item -ItemType Directory -Force -Path $KAPE_WORKING_DIR | Out-Null
-        WriteLog -Severity "Info" -Message "Created working directory $KAPE_WORKING_DIR."
-    }
-
-    #Set-Location $KAPE_WORKING_DIR
 }
 
 function GetKAPE {
@@ -156,7 +143,12 @@ function GetKAPE {
 $global:ProgressPreference = 'SilentlyContinue'
 
 # Create working directory
-CreateTempEnv "kape"
+if (Test-Path $KAPE_WORKING_DIR) {
+    WriteLog -Severity "Info" -Message "No need to create a temp working directory. $KAPE_WORKING_DIR already exists."
+} else {
+    New-Item -ItemType Directory -Force -Path $KAPE_WORKING_DIR | Out-Null
+    WriteLog -Severity "Info" -Message "Created working directory $KAPE_WORKING_DIR."
+}
 
 # get KAPE if it doesnt already exist
 if (-not($(Test-Path -Path $KAPE_VERSION_PATH))) {
@@ -182,17 +174,22 @@ if($PSBoundParameters.ContainsKey('Modules')) {
     $kapeArgs = "$kapeArgs --mdest $KAPE_MDEST --module $Modules --mflush --zm"
 }
 
-WriteLog -Severity "Info" -Message "Starting KAPE as background job with args: $kapeArgs"
+# Append zip password arguments if Password was declared
+if($PSBoundParameters.ContainsKey('Password')) {
+    $kapeArgs = "$kapeArgs --zpw $Password"
+}
 
 # Run KAPE
 if ($AsBackgroundJob) {
+    WriteLog -Severity "Info" -Message "Starting KAPE as background job with args: $kapeArgs"
     Start-Process $KAPE_EXE_PATH -WindowStyle Hidden -ArgumentList $kapeArgs
+    
+    # Wait 10 seconds for background job to start
+    Start-Sleep -Seconds 10
 } else {
+    WriteLog -Severity "Info" -Message "Starting KAPE with args: $kapeArgs"
     Start-Process $KAPE_EXE_PATH -Wait -NoNewWindow -ArgumentList $kapeArgs
 }
-
-# Wait 10 seconds
-Start-Sleep -Seconds 10
 
 # Check if ConsoleLog.txt file has been created
 $files = @(Get-ChildItem -Path $KAPE_INSTALL_DIR,$KAPE_TDEST -Filter *_ConsoleLog.txt -ErrorAction SilentlyContinue)
