@@ -34,8 +34,11 @@
 .Parameter AsBackgroundJob
     Specifies whether KAPE should run as a background job
 
+.Parameter StorageContainer
+    Specifies the Azure blob storage container to store KAPE outputs
+
 .Parameter StorageToken
-    Azure storage token for blob storage container
+    Specifies the Azure blob storage token to store KAPE outputs
 #>
 
 #########################################
@@ -43,32 +46,43 @@
 #########################################
 
 param(
-    [Parameter(Mandatory)]
+    [Parameter(Mandatory, ParameterSetName = 'All')]
+    [Parameter(Mandatory, ParameterSetName = 'RemoteStorage')]
     [string]$RepoLocation,
 
-    [Parameter()]
+    [Parameter(ParameterSetName = 'All')]
+    [Parameter(ParameterSetName = 'RemoteStorage')]
     [double]$Version,
 
-    [Parameter()]
+    [Parameter(ParameterSetName = 'All')]
+    [Parameter(ParameterSetName = 'RemoteStorage')]
     [string]$Drive = "C:",
 
-    [Parameter()]
+    [Parameter(ParameterSetName = 'All')]
+    [Parameter(ParameterSetName = 'RemoteStorage')]
     [ValidateSet("zip", "vhd", "vhdx")]
     [string]$Container = "zip",
 
-    [Parameter()]
+    [Parameter(ParameterSetName = 'All')]
+    [Parameter(ParameterSetName = 'RemoteStorage')]
     [string]$Password,
 
-    [Parameter(Mandatory)]
+    [Parameter(Mandatory, ParameterSetName = 'All')]
+    [Parameter(Mandatory, ParameterSetName = 'RemoteStorage')]
     [string]$Targets,
 
-    [Parameter()]
+    [Parameter(ParameterSetName = 'All')]
+    [Parameter(ParameterSetName = 'RemoteStorage')]
     [string]$Modules,
 
-    [Parameter()]
+    [Parameter(ParameterSetName = 'All')]
+    [Parameter(ParameterSetName = 'RemoteStorage')]
     [switch]$AsBackgroundJob,
+
+    [Parameter(Mandatory, ParameterSetName = 'RemoteStorage')]
+    [string]$StorageContainer,
     
-    [Parameter()]
+    [Parameter(Mandatory, ParameterSetName = 'RemoteStorage')]
     [string]$StorageToken
 )
 
@@ -83,6 +97,7 @@ $global:KAPE_INSTALL_PATH = [System.IO.Path]::Combine($KAPE_WORKING_PATH, "kape-
 $global:KAPE_ARCHIVE_PATH = [System.IO.Path]::Combine($KAPE_WORKING_PATH, "kape.zip")            # Temporary name for KAPE zip file 
 $global:KAPE_VERSION_PATH = [System.IO.Path]::Combine($KAPE_INSTALL_PATH, "version")             # Path to KAPE version file
 $global:KAPE_EXE_PATH = [System.IO.Path]::Combine($KAPE_INSTALL_PATH, "kape.exe")                # Path to KAPE exe
+$global:AZCOPY_EXE_PATH = [System.IO.Path]::Combine($KAPE_INSTALL_PATH, "azcopy.exe")            # Path to azcopy exe
 $global:KAPE_TARGETS_PATH = [System.IO.Path]::Combine($KAPE_WORKING_PATH, "targets")             # Directory to store KAPE target outupts
 $global:KAPE_MODULES_PATH = [System.IO.Path]::Combine($KAPE_WORKING_PATH, "modules")             # Directory to store KAPE module outputs
 $global:KAPE_ALL_OUTPUTS_PATH = [System.IO.Path]::Combine($KAPE_WORKING_PATH, "outputs")         # KAPE outputs
@@ -193,6 +208,7 @@ $ScriptBlockParams = [PSCustomObject]@{
     KapeArgs = $KapeArgs
     KapeOutputsDir = "$(Get-Date -Format "yyyyMMdd_hhmmss")_$(Hostname)"                   
     KAPE_EXE_PATH = $KAPE_EXE_PATH
+    AZCOPY_EXE_PATH = $AZCOPY_EXE_PATH
     KAPE_ALL_OUTPUTS_PATH = $KAPE_ALL_OUTPUTS_PATH
     KAPE_TARGETS_PATH = $KAPE_TARGETS_PATH
     KAPE_MODULES_PATH = $KAPE_MODULES_PATH
