@@ -33,6 +33,9 @@
 
 .Parameter AsBackgroundJob
     Specifies whether KAPE should run as a background job
+
+.Parameter StorageToken
+    Azure storage token for blob storage container
 #>
 
 #########################################
@@ -63,7 +66,10 @@ param(
     [string]$Modules,
 
     [Parameter()]
-    [switch]$AsBackgroundJob
+    [switch]$AsBackgroundJob,
+    
+    [Parameter()]
+    [string]$StorageToken
 )
 
 #########################################
@@ -72,14 +78,14 @@ param(
 
 $ROOT = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath("C:")
 
-$global:HOSTNAME = [System.Net.Dns]::GetHostName()                                      # Current host
-$global:KAPE_WORKING_DIR = [System.IO.Path]::Combine($ROOT, "KAPE")                     # Working directory
-$global:KAPE_INSTALL_DIR = [System.IO.Path]::Combine($KAPE_WORKING_DIR, "kape-master")  # KAPE package directory
-$global:KAPE_TEMP_ARCHIVE = [System.IO.Path]::Combine($KAPE_WORKING_DIR, "kape.zip")    # Temporary name for KAPE zip file 
-$global:KAPE_VERSION_PATH = [System.IO.Path]::Combine($KAPE_INSTALL_DIR, "version")     # Path to KAPE version file
-$global:KAPE_EXE_PATH = [System.IO.Path]::Combine($KAPE_INSTALL_DIR, "kape.exe")        # Path to KAPE exe
-$global:KAPE_TDEST = [System.IO.Path]::Combine($KAPE_WORKING_DIR, "targets")            # Directory to store KAPE target outupts
-$global:KAPE_MDEST = [System.IO.Path]::Combine($KAPE_WORKING_DIR, "modules")            # Directory to store KAPE module outputs
+$global:KAPE_WORKING_PATH = [System.IO.Path]::Combine($ROOT, "KAPE")                             # Working directory
+$global:KAPE_INSTALL_PATH = [System.IO.Path]::Combine($KAPE_WORKING_PATH, "kape-master")         # KAPE package directory
+$global:KAPE_ARCHIVE_PATH = [System.IO.Path]::Combine($KAPE_WORKING_PATH, "kape.zip")            # Temporary name for KAPE zip file 
+$global:KAPE_VERSION_PATH = [System.IO.Path]::Combine($KAPE_INSTALL_PATH, "version")             # Path to KAPE version file
+$global:KAPE_EXE_PATH = [System.IO.Path]::Combine($KAPE_INSTALL_PATH, "kape.exe")                # Path to KAPE exe
+$global:KAPE_TARGETS_PATH = [System.IO.Path]::Combine($KAPE_WORKING_PATH, "targets")             # Directory to store KAPE target outupts
+$global:KAPE_MODULES_PATH = [System.IO.Path]::Combine($KAPE_WORKING_PATH, "modules")             # Directory to store KAPE module outputs
+$global:KAPE_ALL_OUTPUTS_PATH = [System.IO.Path]::Combine($KAPE_WORKING_PATH, "outputs")         # KAPE outputs
 
 #########################################
 # Functions
@@ -96,41 +102,35 @@ function WriteLog {
     Write-Host "$(Get-Date) $Severity $Message"
 }
 
-$currentPrincipal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
-if (-not($currentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator))) {
-    WriteLog -Severity "Error" -Message "Administrative privileges are required to run KAPE, exiting."
-    exit 1
-}
-
 function GetKAPE {
     # Delete any existing KAPE binaries
-    if ($(Test-Path -Path $KAPE_INSTALL_DIR)) {
-        Remove-Item -Path $KAPE_INSTALL_DIR -Force -Recurse
-        WriteLog -Severity "Info" -Message "Deleting existing KAPE install at $KAPE_INSTALL_DIR"
+    if ($(Test-Path -Path $KAPE_INSTALL_PATH)) {
+        Remove-Item -Path $KAPE_INSTALL_PATH -Force -Recurse
+        WriteLog -Severity "Info" -Message "Deleting existing KAPE install at $KAPE_INSTALL_PATH"
     }
 
     # Download KAPE from remote location
     WriteLog -Severity "Info" -Message "Downloading KAPE from $RepoLocation"
 
-    Invoke-WebRequest -Uri $RepoLocation -OutFile $KAPE_TEMP_ARCHIVE
+    Invoke-WebRequest -Uri $RepoLocation -OutFile $KAPE_ARCHIVE_PATH
 
-    if ($(Test-Path -Path $KAPE_TEMP_ARCHIVE)) {
-        WriteLog -Severity "Info" -Message "Downloaded KAPE to to $KAPE_TEMP_ARCHIVE"
+    if ($(Test-Path -Path $KAPE_ARCHIVE_PATH)) {
+        WriteLog -Severity "Info" -Message "Downloaded KAPE to to $KAPE_ARCHIVE_PATH"
     } else {
-        WriteLog -Severity "Error" -Message "Error downloading KAPE to to $KAPE_TEMP_ARCHIVE"
+        WriteLog -Severity "Error" -Message "Error downloading KAPE to to $KAPE_ARCHIVE_PATH"
         exit 1
     }
 
     # Exapnd KAPE zip
-    WriteLog -Severity "Info" -Message "Extracting $KAPE_TEMP_ARCHIVE"
+    WriteLog -Severity "Info" -Message "Extracting $KAPE_ARCHIVE_PATH"
 
-    Expand-Archive -Path $KAPE_TEMP_ARCHIVE -DestinationPath $KAPE_WORKING_DIR -Force
+    Expand-Archive -Path $KAPE_ARCHIVE_PATH -DestinationPath $KAPE_WORKING_PATH -Force
 
-    if ($(Test-Path -Path $KAPE_WORKING_DIR)) {
-        WriteLog -Severity "Info" -Message "Extracted KAPE to $KAPE_INSTALL_DIR"
-        Remove-Item -Path $KAPE_TEMP_ARCHIVE
+    if ($(Test-Path -Path $KAPE_WORKING_PATH)) {
+        WriteLog -Severity "Info" -Message "Extracted KAPE to $KAPE_INSTALL_PATH"
+        Remove-Item -Path $KAPE_ARCHIVE_PATH
     } else {
-        WriteLog -Severity "Error" -Message "Error extracting KAPE to $KAPE_WORKING_DIR"
+        WriteLog -Severity "Error" -Message "Error extracting KAPE to $KAPE_WORKING_PATH"
         exit 1
     }
 }
@@ -139,23 +139,30 @@ function GetKAPE {
 # Main
 #########################################
 
+# Check for Admin privileges
+$currentPrincipal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
+if (-not($currentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator))) {
+    WriteLog -Severity "Error" -Message "Administrative privileges are required to run KAPE, exiting."
+    exit 1
+}
+
 # Disable progress bars from writing to the standard output
 $global:ProgressPreference = 'SilentlyContinue'
 
 # Create working directory
-if (Test-Path $KAPE_WORKING_DIR) {
-    WriteLog -Severity "Info" -Message "No need to create a temp working directory. $KAPE_WORKING_DIR already exists."
+if (Test-Path $KAPE_WORKING_PATH) {
+    WriteLog -Severity "Info" -Message "No need to create a temp working directory. $KAPE_WORKING_PATH already exists."
 } else {
-    New-Item -ItemType Directory -Force -Path $KAPE_WORKING_DIR | Out-Null
-    WriteLog -Severity "Info" -Message "Created working directory $KAPE_WORKING_DIR."
+    New-Item -ItemType Directory -Force -Path $KAPE_WORKING_PATH | Out-Null
+    WriteLog -Severity "Info" -Message "Created working directory $KAPE_WORKING_PATH."
 }
 
 # get KAPE if it doesnt already exist
 if (-not($(Test-Path -Path $KAPE_VERSION_PATH))) {
-    WriteLog -Severity "Info" -Message "An existing KAPE version file was not found at $KAPE_VERSION_PATH, redownloading."
+    WriteLog -Severity "Info" -Message "An existing KAPE version file was not found at $KAPE_VERSION_PATH, re-downloading."
     GetKAPE
 } 
-# Otherwise, redownload if current version is less than required version
+# Otherwise, re-download if current version is less than required version
 elseif ($PSBoundParameters.ContainsKey('Version')) {
     $currentVersion = $(Get-Content -Path $KAPE_VERSION_PATH)
     if ($($currentVersion -as [double]) -lt $Version) {
@@ -167,36 +174,97 @@ elseif ($PSBoundParameters.ContainsKey('Version')) {
 }
 
 # Create argument string to kape.exe
-$kapeArgs = "--tsource $Drive --tdest $KAPE_TDEST --target $Targets --tflush --$Container $HOSTNAME"
+$KapeArgs = "--tsource $Drive --tdest $KAPE_TARGETS_PATH --target $Targets --tflush --$Container TargetsOutput"
 
 # Append module arguments if Modules were declared
 if($PSBoundParameters.ContainsKey('Modules')) {
-    $kapeArgs = "$kapeArgs --mdest $KAPE_MDEST --module $Modules --mflush --zm"
+    $KapeArgs = "$KapeArgs --mdest $KAPE_MODULES_PATH --module $Modules --mflush --zm"
 }
 
 # Append zip password arguments if Password was declared
 if($PSBoundParameters.ContainsKey('Password')) {
-    $kapeArgs = "$kapeArgs --zpw $Password"
+    $KapeArgs = "$KapeArgs --zpw $Password"
 }
 
-# Run KAPE
-if ($AsBackgroundJob) {
-    WriteLog -Severity "Info" -Message "Starting KAPE as background job with args: $kapeArgs"
-    Start-Process $KAPE_EXE_PATH -WindowStyle Hidden -ArgumentList $kapeArgs
+# Arguments to script block
+$ScriptBlockParams = [PSCustomObject]@{
+    AsBackgroundJob = $AsBackgroundJob 
+    StorageToken = $StorageToken
+    KapeArgs = $KapeArgs
+    KapeOutputsDir = "$(Get-Date -Format "yyyyMMdd_hhmmss")_$(Hostname)"                   
+    KAPE_EXE_PATH = $KAPE_EXE_PATH
+    KAPE_ALL_OUTPUTS_PATH = $KAPE_ALL_OUTPUTS_PATH
+    KAPE_TARGETS_PATH = $KAPE_TARGETS_PATH
+    KAPE_MODULES_PATH = $KAPE_MODULES_PATH
+}
+
+# Define script block for Job
+$ScriptBlock = {
+    param($ScriptBlockParams)
+
+    $KapeOutputsPath = [System.IO.Path]::Combine($ScriptBlockParams.KAPE_ALL_OUTPUTS_PATH, $ScriptBlockParams.KapeOutputsDir)
     
-    # Wait 10 seconds for background job to start
-    Start-Sleep -Seconds 10
-} else {
-    WriteLog -Severity "Info" -Message "Starting KAPE with args: $kapeArgs"
-    Start-Process $KAPE_EXE_PATH -Wait -NoNewWindow -ArgumentList $kapeArgs
+    # Start KAPE
+    if ($ScriptBlockParams.AsBackgroundJob) {
+        Start-Process $ScriptBlockParams.KAPE_EXE_PATH -Wait -WindowStyle Hidden -ArgumentList $ScriptBlockParams.KapeArgs | Out-Null
+    } else {
+        Start-Process $ScriptBlockParams.KAPE_EXE_PATH -Wait -NoNewWindow -ArgumentList $ScriptBlockParams.KapeArgs | Out-Null
+    }
+
+    $TargetsExist = Test-Path $ScriptBlockParams.KAPE_TARGETS_PATH
+    $ModulesExist = Test-Path $ScriptBlockParams.KAPE_MODULES_PATH
+    $OutputsExist = Test-Path $KapeOutputsPath
+
+    # Copy targets and modules to outputs
+    Write-Host "$(Get-Date) Info KAPE has finished running, copying outputs to $KapeOutputsPath"
+    New-Item -ItemType Directory -Force -Path $KapeOutputsPath | Out-Null
+    if ($TargetsExist) {
+        Move-Item -Path "$($ScriptBlockParams.KAPE_TARGETS_PATH)\*" -Destination $KapeOutputsPath -Force
+    }
+    if ($ModulesExist) {
+        Move-Item -Path "$($ScriptBlockParams.KAPE_MODULES_PATH)\*" -Destination $KapeOutputsPath -Force
+    }
+
+    # Upload to Azure
+
+    # If storing to a remote location, delete local outputs
+    if (($ScriptBlockParams.StorageToken -ne $null) -AND $OutputsExist) {
+        Write-Host "$(Get-Date) Info Remote storage location set, removing $KapeOutputsPath"
+        Remove-Item $KapeOutputsPath -Recurse
+    }
+
+    # Delete target and module directories
+    if ($TargetsExist) {
+        Write-Host "$(Get-Date) Info Removing $($ScriptBlockParams.KAPE_TARGETS_PATH)"
+        Remove-Item $ScriptBlockParams.KAPE_TARGETS_PATH -Recurse
+    }
+    if ($ModulesExist) {
+        Write-Host "$(Get-Date) Info Removing $($ScriptBlockParams.KAPE_MODULES_PATH)"
+        Remove-Item $ScriptBlockParams.KAPE_MODULES_PATH -Recurse
+    }
 }
 
-# Check if ConsoleLog.txt file has been created
-$files = @(Get-ChildItem -Path $KAPE_INSTALL_DIR,$KAPE_TDEST -Filter *_ConsoleLog.txt -ErrorAction SilentlyContinue)
-if ($files.length -eq 0) {
-    WriteLog -Severity "Error" -Message "ConsoleLog.txt could not be found, something may have went wrong."
+# Start Job
+
+if ($AsBackgroundJob) {
+    WriteLog -Severity "Info" -Message "Starting KAPE as background job with args: $KapeArgs"
+    
+    # Start background job
+    $job = Start-Job -ScriptBlock $ScriptBlock -ArgumentList $ScriptBlockParams
+    
+    # Wait 10 seconds and check Job has not failed
+    Start-Sleep -Seconds 10
+    if ($job.State -eq 'Failed') {
+        WriteLog -Severity "Error" -Message "Background job failed with error: $($job.ChildJobs[0].JobStateInfo.Reason.Message)"
+    } else {
+        WriteLog -Severity "Info" -Message "KAPE is running, outputs will be stored in $($ScriptBlockParams.KapeOutputsDir); This may take a couple minutes."
+    }
+
 } else {
-    WriteLog -Severity "Info" -Message "KAPE is logging to $($files.Name)"
+    WriteLog -Severity "Info" -Message "Starting KAPE with args: $KapeArgs"
+
+    # Start in foreground
+    &$ScriptBlock -ScriptBlockParams $ScriptBlockParams
 }
 
 # Enable progress bars to write to the standard output
