@@ -90,8 +90,7 @@ param(
 # Global Variables
 #########################################
 
-$ROOT = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath("C:")
-
+$global:ROOT = "C:\"                                                                             # Root drive
 $global:KAPE_WORKING_PATH = [System.IO.Path]::Combine($ROOT, "KAPE")                             # Working directory
 $global:KAPE_INSTALL_PATH = [System.IO.Path]::Combine($KAPE_WORKING_PATH, "kape-master")         # KAPE package directory
 $global:KAPE_ARCHIVE_PATH = [System.IO.Path]::Combine($KAPE_WORKING_PATH, "kape.zip")            # Temporary name for KAPE zip file 
@@ -158,6 +157,12 @@ function GetKAPE {
 $currentPrincipal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
 if (-not($currentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator))) {
     WriteLog -Severity "Error" -Message "Administrative privileges are required to run KAPE, exiting."
+    exit 1
+}
+
+# Check if Root directory exists
+if(-not($(Test-Path $ROOT))) {
+    WriteLog -Severity "Error" -Message "Root directory $ROOT not found, exiting."
     exit 1
 }
 
