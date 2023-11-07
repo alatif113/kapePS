@@ -106,7 +106,7 @@ $global:7Z_EXE_PATH = [System.IO.Path]::Combine($KAPE_INSTALL_PATH, "7za.exe")  
 $global:KAPE_TARGETS_PATH = [System.IO.Path]::Combine($KAPE_WORKING_PATH, "targets")                    # Directory to store KAPE target outupts
 $global:KAPE_MODULES_PATH = [System.IO.Path]::Combine($KAPE_WORKING_PATH, "modules")                    # Directory to store KAPE module outputs
 $global:KAPE_ALL_OUTPUTS_PATH = [System.IO.Path]::Combine($KAPE_WORKING_PATH, "outputs")                # KAPE outputs
-$global:AZCOPY_TEST_PATH = [System.IO.Path]::Combine($KAPE_ALL_OUTPUTS_PATH, "azcopy_test_file.txt")    # File to test azcopy
+$global:AZCOPY_TEST_PATH = [System.IO.Path]::Combine($KAPE_WORKING_PATH, "azcopy_test_file.txt")    # File to test azcopy
 
 #########################################
 # Functions
@@ -188,16 +188,6 @@ if(-not($(Test-Path $ROOT))) {
     exit 1
 }
 
-# Test azcopy
-if($PSBoundParameters.ContainsKey('StorageAccount')) {
-    WriteLog -Severity "Info" -Message "Azure torage account set, testing upload to https://$StorageAccount.blob.core.windows.net/$StorageContainer."
-    if(TestAzCopy) {
-        WriteLog -Severity "Info" -Message "Successfully tested connection to https://$StorageAccount.blob.core.windows.net/$StorageContainer."
-    } else {
-        exit 1
-    }
-}
-
 # Disable progress bars from writing to the standard output
 $global:ProgressPreference = 'SilentlyContinue'
 
@@ -223,6 +213,16 @@ elseif ($PSBoundParameters.ContainsKey('Version')) {
     }
 } else {
     WriteLog -Severity "Info" -Message "Using existing installation of KAPE."
+}
+
+# Test azcopy
+if($PSBoundParameters.ContainsKey('StorageAccount')) {
+    WriteLog -Severity "Info" -Message "Azure storage account set, testing upload to https://$StorageAccount.blob.core.windows.net/$StorageContainer."
+    if(TestAzCopy) {
+        WriteLog -Severity "Info" -Message "Successfully tested connection to https://$StorageAccount.blob.core.windows.net/$StorageContainer."
+    } else {
+        exit 1
+    }
 }
 
 # Create argument string to kape.exe
