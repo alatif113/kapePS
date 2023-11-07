@@ -153,16 +153,16 @@ function GetKAPE {
 }
 
 function TestAzCopy {
-    New-Item -ItemType File -Path $AZCOPY_TEST_PATH | Out-Null
-    $Output = &$AZCOPY_EXE_PATH copy $AZCOPY_TEST_PATH https://$StorageAccount.blob.core.windows.net/$StorageContainer/$StorageToken
     $Return = $true
+    New-Item -ItemType File -Path $AZCOPY_TEST_PATH | Out-Null
+    $Output = & $AZCOPY_EXE_PATH copy $AZCOPY_TEST_PATH https://$StorageAccount.blob.core.windows.net/$StorageContainer/$StorageToken
     
     if ($LASTEXITCODE -eq 1) {
         WriteLog -Severity "Error" -Message "Error running azcopy test; try storing KAPE outputs locally instead, exiting."
         $Return = $false
     } 
 
-    if ($output -match 'AuthenticationFailed') {
+    if ($Output -match 'AuthenticationFailed') {
         WriteLog -Severity "Error" -Message "AuthenticationFailed error running azcopy test; try checking if the SAS token is still valid, exiting."
         $Return = $false
     }
