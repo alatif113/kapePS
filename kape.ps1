@@ -19,8 +19,7 @@
     Default Value: C:
 
 .Parameter Container
-    [Optional] Specifies the type of container to collect artifacts within: vhd, vhdx, or zip. 
-    Default Value: zip 
+    [Optional] Specifies the type of container to collect artifacts within: vhd or vhdx. 
 
 .Parameter Password
     [Optional] Specifies that zip files should be encrypted using this password
@@ -32,13 +31,16 @@
     [Required] Specifies a comma separated list of KAPE Modules
 
 .Parameter AsBackgroundJob
-    Specifies whether KAPE should run as a background job
+    [Optional] Specifies whether KAPE should run as a background job
+
+.Parameter StorageAccount
+    [Optional] Specifies the Azure blob storage account to store KAPE outputs
 
 .Parameter StorageContainer
-    Specifies the Azure blob storage container to store KAPE outputs
+    [Optional] Specifies the Azure blob storage container to store KAPE outputs
 
 .Parameter StorageToken
-    Specifies the Azure blob storage token to store KAPE outputs
+    [Optional] Specifies the Azure blob storage token to store KAPE outputs. Required if StorageContainer is set. 
 #>
 
 #########################################
@@ -60,8 +62,8 @@ param(
 
     [Parameter(ParameterSetName = 'All')]
     [Parameter(ParameterSetName = 'RemoteStorage')]
-    [ValidateSet("zip", "vhd", "vhdx")]
-    [string]$Container = "zip",
+    [ValidateSet("vhd", "vhdx")]
+    [string]$Container,
 
     [Parameter(ParameterSetName = 'All')]
     [Parameter(ParameterSetName = 'RemoteStorage')]
@@ -78,6 +80,9 @@ param(
     [Parameter(ParameterSetName = 'All')]
     [Parameter(ParameterSetName = 'RemoteStorage')]
     [switch]$AsBackgroundJob,
+
+    [Parameter(Mandatory, ParameterSetName = 'RemoteStorage')]
+    [string]$StorageAccount,
 
     [Parameter(Mandatory, ParameterSetName = 'RemoteStorage')]
     [string]$StorageContainer,
@@ -97,6 +102,7 @@ $global:KAPE_ARCHIVE_PATH = [System.IO.Path]::Combine($KAPE_WORKING_PATH, "kape.
 $global:KAPE_VERSION_PATH = [System.IO.Path]::Combine($KAPE_INSTALL_PATH, "version")             # Path to KAPE version file
 $global:KAPE_EXE_PATH = [System.IO.Path]::Combine($KAPE_INSTALL_PATH, "kape.exe")                # Path to KAPE exe
 $global:AZCOPY_EXE_PATH = [System.IO.Path]::Combine($KAPE_INSTALL_PATH, "azcopy.exe")            # Path to azcopy exe
+$global:7Z_EXE_PATH = [System.IO.Path]::Combine($KAPE_INSTALL_PATH, "7za.exe")                   # Path to 7z exe
 $global:KAPE_TARGETS_PATH = [System.IO.Path]::Combine($KAPE_WORKING_PATH, "targets")             # Directory to store KAPE target outupts
 $global:KAPE_MODULES_PATH = [System.IO.Path]::Combine($KAPE_WORKING_PATH, "modules")             # Directory to store KAPE module outputs
 $global:KAPE_ALL_OUTPUTS_PATH = [System.IO.Path]::Combine($KAPE_WORKING_PATH, "outputs")         # KAPE outputs
@@ -125,28 +131,24 @@ function GetKAPE {
 
     # Download KAPE from remote location
     WriteLog -Severity "Info" -Message "Downloading KAPE from $RepoLocation"
-
-    Invoke-WebRequest -Uri $RepoLocation -OutFile $KAPE_ARCHIVE_PATH
-
-    if ($(Test-Path -Path $KAPE_ARCHIVE_PATH)) {
-        WriteLog -Severity "Info" -Message "Downloaded KAPE to to $KAPE_ARCHIVE_PATH"
-    } else {
-        WriteLog -Severity "Error" -Message "Error downloading KAPE to to $KAPE_ARCHIVE_PATH"
+    try {
+        Invoke-WebRequest -Uri $RepoLocation -OutFile $KAPE_ARCHIVE_PATH
+    } catch {
+        WriteLog -Severity "Error" -Message "Error downloading KAPE to to $KAPE_ARCHIVE_PATH; $_"
         exit 1
     }
+    WriteLog -Severity "Info" -Message "Downloaded KAPE to to $KAPE_ARCHIVE_PATH"
 
     # Exapnd KAPE zip
     WriteLog -Severity "Info" -Message "Extracting $KAPE_ARCHIVE_PATH"
-
-    Expand-Archive -Path $KAPE_ARCHIVE_PATH -DestinationPath $KAPE_WORKING_PATH -Force
-
-    if ($(Test-Path -Path $KAPE_WORKING_PATH)) {
-        WriteLog -Severity "Info" -Message "Extracted KAPE to $KAPE_INSTALL_PATH"
-        Remove-Item -Path $KAPE_ARCHIVE_PATH
-    } else {
-        WriteLog -Severity "Error" -Message "Error extracting KAPE to $KAPE_WORKING_PATH"
+    try {
+        Expand-Archive -Path $KAPE_ARCHIVE_PATH -DestinationPath $KAPE_WORKING_PATH -Force
+    } catch {
+        WriteLog -Severity "Error" -Message "Error extracting KAPE to $KAPE_WORKING_PATH; $_"
         exit 1
     }
+    WriteLog -Severity "Info" -Message "Extracted KAPE to $KAPE_INSTALL_PATH"
+    Remove-Item -Path $KAPE_ARCHIVE_PATH
 }
 
 #########################################
@@ -194,79 +196,112 @@ elseif ($PSBoundParameters.ContainsKey('Version')) {
 }
 
 # Create argument string to kape.exe
-$KapeArgs = "--tsource $Drive --tdest $KAPE_TARGETS_PATH --target $Targets --tflush --$Container TargetsOutput"
+$KapeArgs = "--tsource $Drive --tdest $KAPE_TARGETS_PATH --target $Targets --tflush"
 
 # Append module arguments if Modules were declared
 if($PSBoundParameters.ContainsKey('Modules')) {
-    $KapeArgs = "$KapeArgs --mdest $KAPE_MODULES_PATH --module $Modules --mflush --zm"
+    $KapeArgs = "$KapeArgs --mdest $KAPE_MODULES_PATH --module $Modules --mflush"
 }
 
-# Append zip password arguments if Password was declared
+# Append module arguments if Modules were declared
+if($PSBoundParameters.ContainsKey('Container')) {
+    $KapeArgs = "$KapeArgs --$Container $(Hostname) --zv false"
+}
+
+$KapeOutputsArchive = "$(Hostname)_$(Get-Date -Format "yyyyMMdd_hhmmss").zip"                   
+$KapeOutputsPath = [System.IO.Path]::Combine($KAPE_ALL_OUTPUTS_PATH, $KapeOutputsArchive)
+
+# Create argument string to azcopy.exe
+if($PSBoundParameters.ContainsKey('StorageAccount')) {
+    $AzcopyArgs = "copy $KapeOutputsPath https://$StorageAccount.blob.core.windows.net/$StorageContainer/$StorageToken --recursive"
+}
+
+# Create argument string to 7za.exe
+$7zArgs = "a -tzip -sdel $KapeOutputsPath $KAPE_TARGETS_PATH"
+
+# Append module path if Modules parameter set
+if($PSBoundParameters.ContainsKey('Modules')) {
+    $7zArgs = "$7zArgs $KAPE_MODULES_PATH"
+}
+
+# Set zip password if Password parameter set
 if($PSBoundParameters.ContainsKey('Password')) {
-    $KapeArgs = "$KapeArgs --zpw $Password"
+    $7zArgs = "$7zArgs -p$Password"
 }
 
 # Arguments to script block
 $ScriptBlockParams = [PSCustomObject]@{
-    AsBackgroundJob = $AsBackgroundJob 
-    StorageToken = $StorageToken
+    AsBackgroundJob = $AsBackgroundJob
     KapeArgs = $KapeArgs
-    KapeOutputsDir = "$(Get-Date -Format "yyyyMMdd_hhmmss")_$(Hostname)"                   
-    KAPE_EXE_PATH = $KAPE_EXE_PATH
-    AZCOPY_EXE_PATH = $AZCOPY_EXE_PATH
-    KAPE_ALL_OUTPUTS_PATH = $KAPE_ALL_OUTPUTS_PATH
-    KAPE_TARGETS_PATH = $KAPE_TARGETS_PATH
-    KAPE_MODULES_PATH = $KAPE_MODULES_PATH
+    AzcopyArgs = $AzcopyArgs
+    ZipArgs = $7zArgs
+    KapeOutputsPath = $KapeOutputsPath                 
+    KapeExePath = $KAPE_EXE_PATH
+    AzcopyExePath = $AZCOPY_EXE_PATH
+    ZipExePath = $7Z_EXE_PATH
+    KapeTargetsPath = $KAPE_TARGETS_PATH
+    KapeModulesPath = $KAPE_MODULES_PATH
 }
 
 # Define script block for Job
 $ScriptBlock = {
     param($ScriptBlockParams)
-
-    $KapeOutputsPath = [System.IO.Path]::Combine($ScriptBlockParams.KAPE_ALL_OUTPUTS_PATH, $ScriptBlockParams.KapeOutputsDir)
     
     # Start KAPE
     if ($ScriptBlockParams.AsBackgroundJob) {
-        Start-Process $ScriptBlockParams.KAPE_EXE_PATH -Wait -WindowStyle Hidden -ArgumentList $ScriptBlockParams.KapeArgs | Out-Null
+        Start-Process $ScriptBlockParams.KapeExePath -Wait -WindowStyle Hidden -ArgumentList $ScriptBlockParams.KapeArgs | Out-Null
     } else {
-        Start-Process $ScriptBlockParams.KAPE_EXE_PATH -Wait -NoNewWindow -ArgumentList $ScriptBlockParams.KapeArgs | Out-Null
+        Start-Process $ScriptBlockParams.KapeExePath -Wait -NoNewWindow -ArgumentList $ScriptBlockParams.KapeArgs | Out-Null
     }
 
-    $TargetsExist = Test-Path $ScriptBlockParams.KAPE_TARGETS_PATH
-    $ModulesExist = Test-Path $ScriptBlockParams.KAPE_MODULES_PATH
-    $OutputsExist = Test-Path $KapeOutputsPath
-
-    # Copy targets and modules to outputs
-    Write-Host "$(Get-Date) Info KAPE has finished running, copying outputs to $KapeOutputsPath"
-    New-Item -ItemType Directory -Force -Path $KapeOutputsPath | Out-Null
-    if ($TargetsExist) {
-        Move-Item -Path "$($ScriptBlockParams.KAPE_TARGETS_PATH)\*" -Destination $KapeOutputsPath -Force
+    # If Targets directory not created, something went wrong; exit
+    if (-not($(Test-Path $ScriptBlockParams.KapeTargetsPath))) {
+        exit 1
     }
-    if ($ModulesExist) {
-        Move-Item -Path "$($ScriptBlockParams.KAPE_MODULES_PATH)\*" -Destination $KapeOutputsPath -Force
+
+    # Create Zip 
+    Write-Host "$(Get-Date) Info Running 7z to compress KAPE outputs."
+    if ($ScriptBlockParams.AsBackgroundJob) {
+        Start-Process $ScriptBlockParams.ZipExePath -Wait -WindowStyle Hidden -ArgumentList $ScriptBlockParams.ZipArgs | Out-Null
+    } else {
+        Start-Process $ScriptBlockParams.ZipExePath -Wait -NoNewWindow -ArgumentList $ScriptBlockParams.ZipArgs | Out-Null
+    }
+
+    # If zip archive not created, something went wrong; exit
+    if (-not($(Test-Path $ScriptBlockParams.KapeOutputsPath))) {
+        exit 1
     }
 
     # Upload to Azure
+    if ($ScriptBlockParams.AzcopyArgs -ne $null) {
+        Write-Host "$(Get-Date) Info Running azcopy to upload $($ScriptBlockParams.KapeOutputsPath) to remote storage."
+        if ($ScriptBlockParams.AsBackgroundJob) {
+            Start-Process $ScriptBlockParams.AzcopyExePath -Wait -WindowStyle Hidden -ArgumentList $ScriptBlockParams.AzcopyArgs | Out-Null
+        } else {
+            Start-Process $ScriptBlockParams.AzcopyExePath -Wait -NoNewWindow -ArgumentList $ScriptBlockParams.AzcopyArgs | Out-Null
+        }
+    }
 
     # If storing to a remote location, delete local outputs
-    if (($ScriptBlockParams.StorageToken -ne $null) -AND $OutputsExist) {
-        Write-Host "$(Get-Date) Info Remote storage location set, removing $KapeOutputsPath"
-        Remove-Item $KapeOutputsPath -Recurse
+    if (($ScriptBlockParams.AzcopyArgs -ne $null) -AND $(Test-Path $ScriptBlockParams.KapeOutputsPath)) {
+        Write-Host "$(Get-Date) Info Removing $($ScriptBlockParams.KapeOutputsPath)"
+        Remove-Item $ScriptBlockParams.KapeOutputsPath -Recurse
     }
 
-    # Delete target and module directories
-    if ($TargetsExist) {
-        Write-Host "$(Get-Date) Info Removing $($ScriptBlockParams.KAPE_TARGETS_PATH)"
-        Remove-Item $ScriptBlockParams.KAPE_TARGETS_PATH -Recurse
+    # Clean up targets 
+    if ($(Test-Path $ScriptBlockParams.KapeTargetsPath)) {
+        Write-Host "$(Get-Date) Info Removing $($ScriptBlockParams.KapeTargetsPath)"
+        Remove-Item $ScriptBlockParams.KapeTargetsPath -Recurse
     }
-    if ($ModulesExist) {
-        Write-Host "$(Get-Date) Info Removing $($ScriptBlockParams.KAPE_MODULES_PATH)"
-        Remove-Item $ScriptBlockParams.KAPE_MODULES_PATH -Recurse
+
+    # Clean up modules
+    if ($(Test-Path $ScriptBlockParams.KapeModulesPath)) {
+        Write-Host "$(Get-Date) Info Removing $($ScriptBlockParams.KapeModulesPath)"
+        Remove-Item $ScriptBlockParams.KapeModulesPath -Recurse
     }
 }
 
 # Start Job
-
 if ($AsBackgroundJob) {
     WriteLog -Severity "Info" -Message "Starting KAPE as background job with args: $KapeArgs"
     
@@ -278,7 +313,11 @@ if ($AsBackgroundJob) {
     if ($job.State -eq 'Failed') {
         WriteLog -Severity "Error" -Message "Background job failed with error: $($job.ChildJobs[0].JobStateInfo.Reason.Message)"
     } else {
-        WriteLog -Severity "Info" -Message "KAPE is running, outputs will be stored in $($ScriptBlockParams.KapeOutputsDir); This may take a couple minutes."
+        if ($PSBoundParameters.ContainsKey('StorageAccount')) {
+            WriteLog -Severity "Info" -Message "KAPE is running, outputs will be stored at https://$StorageAccount.blob.core.windows.net/$StorageContainer/$KapeOutputsArchive; This may take a couple minutes."
+        } else {
+            WriteLog -Severity "Info" -Message "KAPE is running, outputs will be stored in $KapeOutputsPath; This may take a couple minutes."
+        }
     }
 
 } else {
@@ -286,6 +325,11 @@ if ($AsBackgroundJob) {
 
     # Start in foreground
     &$ScriptBlock -ScriptBlockParams $ScriptBlockParams
+    if ($PSBoundParameters.ContainsKey('StorageAccount')) {
+        WriteLog -Severity "Info" -Message "Done; Outputs are stored at https://$StorageAccount.blob.core.windows.net/$StorageContainer/$KapeOutputsArchive."
+    } else {
+        WriteLog -Severity "Info" -Message "Done; Outputs are stored in $KapeOutputsPath."
+    }
 }
 
 # Enable progress bars to write to the standard output
