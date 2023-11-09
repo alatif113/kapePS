@@ -249,7 +249,7 @@ if($PSBoundParameters.ContainsKey('StorageAccount')) {
 
     # If errors, log and exit
     if ($null -ne $ErrorString) {
-        WriteLog -Severity "Error" -Message "Connection test to https://$StorageAccount.blob.core.windows.net/$StorageContainer failed; $ErrorString."
+        WriteLog -Severity "Error" -Message "Connection test to https://$StorageAccount.blob.core.windows.net/$StorageContainer failed; $ErrorString"
         exit
     }
 
