@@ -359,8 +359,7 @@ $ScriptBlock = {
         $Job | Wait-Job -Timeout 300 | Out-Null
         if ($Job.State -eq 'Running') {
             $Job | Stop-Job
-            WriteLog -Severity "Error" -Message "Connection timeout to https://$StorageAccount.blob.core.windows.net/$StorageContainer, exiting."
-            exit
+            $ErrorString = "Connection timeout to https://$StorageAccount.blob.core.windows.net/$StorageContainer"
         } elseif ($Job.State -eq 'Failed') {
             $ErrorString = $($Job.ChildJobs[0].JobStateInfo.Reason.Message)
         } elseif ($Job.State -eq 'Completed') {
