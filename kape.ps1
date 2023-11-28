@@ -208,9 +208,9 @@ if (Test-Path $KAPE_WORKING_PATH) {
 # Check if available space meets threshold
 $FreeSpace = [math]::floor((Get-PSDrive C | Select-Object -ExpandProperty Free) / 1mb)
 if($FreeSpace -gt $MIN_FREE_SPACE_TARGETS) {
-    WriteLog -Severity "Info" -Message "Available space of $FreeSpace MB meets threshold of $MIN_FREE_SPACE_TARGETS MB for KAPE targets."
+    WriteLog -Severity "Info" -Message "Available space of $($FreeSpace.ToString('0,0')) MB meets threshold of $($MIN_FREE_SPACE_TARGETS.ToString('0,0')) MB for KAPE targets."
 } else {
-    WriteLog -Severity "Error" -Message "Available space of $FreeSpace MB is less than the required threshold of $MIN_FREE_SPACE_TARGETS MB for KAPE targets, exiting."
+    WriteLog -Severity "Error" -Message "Available space of $($FreeSpace.ToString('0,0')) MB is less than the required threshold of $($MIN_FREE_SPACE_TARGETS.ToString('0,0')) MB for KAPE targets, exiting."
 }
 
 # get KAPE if it doesnt already exist
@@ -271,15 +271,15 @@ $KapeArgs = @('--tsource', $Drive, '--tdest', $KAPE_TARGETS_PATH, '--target', $T
 # Append module arguments if Modules were declared
 if($PSBoundParameters.ContainsKey('Modules')) {
     $MemSize = [math]::floor((Get-CimInstance Win32_PhysicalMemory | Measure-Object -Property capacity -Sum).sum / 1mb)
-    WriteLog -Severity "Info" -Message "Modules declared to capture $MemSize MB of memory."
+    WriteLog -Severity "Info" -Message "Modules declared to capture $($MemSize.ToString('0,0')) MB of memory."
 
     $MinFreeSpaceModules = $MIN_FREE_SPACE_TARGETS + $MemSize
 
     if($FreeSpace -gt $MinFreeSpaceModules) {
-        WriteLog -Severity "Info" -Message "Available space of $FreeSpace MB meets threshold of $MinFreeSpaceModules MB for KAPE modules."
+        WriteLog -Severity "Info" -Message "Available space of $($FreeSpace.ToString('0,0')) MB meets threshold of $($MinFreeSpaceModules.ToString('0,0')) MB for KAPE modules."
         $KapeArgs += @('--mdest', $KAPE_MODULES_PATH, '--module', $Modules, '--mflush')
     } else {
-        WriteLog -Severity "Warn" -Message "Available space of $FreeSpace MB is less than the required threshold of $MinFreeSpaceModules MB for KAPE modules, skipping."
+        WriteLog -Severity "Warn" -Message "Available space of $($FreeSpace.ToString('0,0')) MB is less than the required threshold of $($MinFreeSpaceModules.ToString('0,0')) MB for KAPE modules, skipping."
     }
 }
 
