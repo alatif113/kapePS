@@ -129,7 +129,7 @@ function RotateLog {
     }
 
     $Log = Get-Item $LOGGING_PATH
-    if ($Log.Length/1024/1024 -ge $MAX_LOG_SIZE) { 
+    if ($Log.Length / 1mb -ge $MAX_LOG_SIZE) { 
         WriteLog -Severity "Info" -Message "Log file is larger than $MAX_LOG_SIZE MB"
         $NewName = "$($Log.BaseName)_$(Get-Date -Format "yyyyMMdd").log"
         Rename-Item -Path $LOGGING_PATH -NewName $NewName -Force
