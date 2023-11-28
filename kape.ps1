@@ -108,7 +108,8 @@ $global:KAPE_TARGETS_PATH = [System.IO.Path]::Combine($KAPE_WORKING_PATH, "targe
 $global:KAPE_MODULES_PATH = [System.IO.Path]::Combine($KAPE_WORKING_PATH, "modules")                    # Directory to store KAPE module outputs
 $global:KAPE_ALL_OUTPUTS_PATH = [System.IO.Path]::Combine($KAPE_WORKING_PATH, "outputs")                # KAPE outputs
 $global:AZCOPY_TEST_PATH = [System.IO.Path]::Combine($KAPE_WORKING_PATH, "azcopy_test_file.txt")        # File to test azcopy
-$global:MAX_LOG_SIZE_KB = 1048576                                                                       # Log file bytes threshold before rotating
+$global:MAX_LOG_SIZE = 1                                                                                # Log file size threshold in MB before rotating
+$global:MIN_FREE_SPACE_TARGETS = 2048                                                                   # Minimum available space in MB in order for KAPE to run
 
 #########################################
 # Functions
@@ -128,8 +129,8 @@ function RotateLog {
     }
 
     $Log = Get-Item $LOGGING_PATH
-    if ($Log.Length -ge $MAX_LOG_SIZE_KB) { 
-        WriteLog -Severity "Info" -Message "Log file is larger than $MAX_LOG_SIZE_KB KB"
+    if ($Log.Length/1024/1024 -ge $MAX_LOG_SIZE) { 
+        WriteLog -Severity "Info" -Message "Log file is larger than $MAX_LOG_SIZE MB"
         $NewName = "$($Log.BaseName)_$(Get-Date -Format "yyyyMMdd").log"
         Rename-Item -Path $LOGGING_PATH -NewName $NewName -Force
         WriteLog -Severity "Info" -Message "Rotated file to $NewName" 
@@ -204,6 +205,14 @@ if (Test-Path $KAPE_WORKING_PATH) {
     WriteLog -Severity "Info" -Message "Created working directory $KAPE_WORKING_PATH."
 }
 
+# Check if available space meets threshold
+$FreeSpace = [math]::floor((Get-PSDrive C | Select-Object -ExpandProperty Free) / 1mb)
+if($FreeSpace -gt $MIN_FREE_SPACE_TARGETS) {
+    WriteLog -Severity "Info" -Message "Available space of $FreeSpace MB meets threshold of $MIN_FREE_SPACE_TARGETS MB for KAPE targets."
+} else {
+    WriteLog -Severity "Error" -Message "Available space of $FreeSpace MB is less than the required threshold of $MIN_FREE_SPACE_TARGETS MB for KAPE targets, exiting."
+}
+
 # get KAPE if it doesnt already exist
 if (-not($(Test-Path -Path $KAPE_VERSION_PATH))) {
     WriteLog -Severity "Info" -Message "An existing KAPE version file was not found at $KAPE_VERSION_PATH, re-downloading."
@@ -261,10 +270,20 @@ $KapeArgs = @('--tsource', $Drive, '--tdest', $KAPE_TARGETS_PATH, '--target', $T
 
 # Append module arguments if Modules were declared
 if($PSBoundParameters.ContainsKey('Modules')) {
-    $KapeArgs += @('--mdest', $KAPE_MODULES_PATH, '--module', $Modules, '--mflush')
+    $MemSize = [math]::floor((Get-CimInstance Win32_PhysicalMemory | Measure-Object -Property capacity -Sum).sum / 1mb)
+    WriteLog -Severity "Info" -Message "Modules declared to capture $MemSize MB of memory."
+
+    $MinFreeSpaceModules = $MIN_FREE_SPACE_TARGETS + $MemSize
+
+    if($FreeSpace -gt $MinFreeSpaceModules) {
+        WriteLog -Severity "Info" -Message "Available space of $FreeSpace MB meets threshold of $MinFreeSpaceModules MB for KAPE modules."
+        $KapeArgs += @('--mdest', $KAPE_MODULES_PATH, '--module', $Modules, '--mflush')
+    } else {
+        WriteLog -Severity "Warn" -Message "Available space of $FreeSpace MB is less than the required threshold of $MinFreeSpaceModules MB for KAPE modules, skipping."
+    }
 }
 
-# Append module arguments if Modules were declared
+# Append container arguments if Container parameter set
 if($PSBoundParameters.ContainsKey('Container')) {
     $KapeArgs += @("--$Container", $(Hostname), '--zv', 'false')
 }
