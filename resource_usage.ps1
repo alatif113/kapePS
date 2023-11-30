@@ -1,40 +1,47 @@
-$Counter = 0
-$MaxCounter = 100
-$Output = @()
+$TotalMem = (Get-WmiObject -Class Win32_ComputerSystem).TotalPhysicalMemory
+$CPUCores = (Get-WMIObject Win32_ComputerSystem).NumberOfLogicalProcessors
+$ProcessList = "kape", "7za", "azcopy"
 
-$TotalRam = (Get-CimInstance Win32_PhysicalMemory | Measure-Object -Property capacity -Sum).Sum
+Write-Host ("{0,20} {1,10} {2,10} {3,10} {4,10} {5,10} {6,10} {7,10}" -f "time","kape_cpu","kape_mem","7za_cpu","7za_mem","azcopy_cpu","azcopy_mem","bandwidth")
+Write-Host ("{0,20} {1,10} {1,10} {1,10} {1,10} {1,10} {1,10} {1,10}" -f "--------------------","----------")
 
-$StartTime = Get-Date
+Clear-Content -Path ./kape_resource_usage.csv
+Add-Content -Path ./kape_resource_usage.csv -Value "time,kape_cpu,kape_mem,7za_cpu,7za_mem,azcopy_cpu,azcopy_mem,bandwidth"
 
-$UsedBandwidth = do {
-	$Percent = [math]::Round($Counter/$MaxCounter * 100)
-	Write-Progress -Activity "Collecting Resource Usage Metrics" -Status "$Percent% Complete:" -PercentComplete $Percent 
+do {
+    $Row = "" | Select-Object timestamp,kape_cpu,kape_mem,7za_cpu,7za_mem,azcopy_cpu,azcopy_mem,bandwidth
 
-	$Counter ++
-	
-	$Row = "" | Select Bandwidth_Percent,CPU_Percent,Memory_Percent
-	
-	$Interface = Get-CimInstance -class Win32_PerfFormattedData_Tcpip_NetworkInterface | select BytesTotalPersec,CurrentBandwidth,PacketsPersec
-	
-    $Row.Bandwidth_Percent = $Interface.BytesTotalPersec / $Interface.CurrentBandwidth * 100
-	
-	$Row.CPU_Percent = (Get-Counter '\Processor(_Total)\% Processor Time').CounterSamples.CookedValue
-	
-	$Mem_Avail = (Get-Counter '\Memory\Available KBytes').CounterSamples.CookedValue * 1024
-	$Row.Memory_Percent = ($TotalRam - $Mem_Avail)/$TotalRam * 100
-	
-	$Output += $Row
-	
-	Start-Sleep -milliseconds 100
-	
-} while ($Counter -le $MaxCounter)
+    foreach ($Process in $ProcessList) {
+        $Row.timestamp = Get-Date -UFormat %s
+        $Proc = (get-process $Process -ErrorAction SilentlyContinue)
 
-$EndTime = Get-Date
+        if ($null -eq $Proc) {
+            $Row."$($Process)_cpu" = 0
+            $Row."$($Process)_mem" = 0
+            continue
+        }
 
-$Output | Export-Csv -Path .\kape_resource_usage.csv -NoTypeInformation
+        $ProcId = $Proc.Id[0]
+        $ProcPath = ((Get-Counter "\Process(*)\ID Process" -ErrorAction SilentlyContinue).CounterSamples | Where-Object {$_.RawValue -eq $ProcId}).Path
 
-Write-Host "Timespan: $StartTime - $EndTime"
-Write-Host "Average Bandwidth Usage: $(($Output.Bandwidth_Percent | Measure-Object -Average).Average) %"
-Write-Host "Average CPU Usage: $(($Output.CPU_Percent | Measure-Object -Average).Average) %"
-Write-Host "Average Memory Usage: $(($Output.Memory_Percent | Measure-Object -Average).Average) %"
+        if ($null -eq $ProcPath) {
+            $Row."$($Process)_cpu" = 0
+            $Row."$($Process)_mem" = 0
+            continue
+        }
 
+        $CPUPercent = [Math]::Round(((Get-Counter ($ProcPath -replace "\\id process$","\% Processor Time") -ErrorAction SilentlyContinue).CounterSamples.CookedValue) / $CPUCores)
+        $MemPercent = [Math]::Round(((Get-Process -Id $ProcId -ErrorAction SilentlyContinue).WorkingSet / $TotalMem) * 100)
+
+        $Row."$($Process)_cpu" = $CPUPercent
+        $Row."$($Process)_mem" = $MemPercent
+    }
+
+    $Interface = Get-CimInstance -class Win32_PerfFormattedData_Tcpip_NetworkInterface | Select-Object BytesTotalPersec, CurrentBandwidth
+    $Row.bandwidth = [Math]::Round($Interface.BytesTotalPersec * 8 / $Interface.CurrentBandwidth * 100)
+
+    Add-Content -Path ./kape_resource_usage.csv -Value "$($Row.timestamp),$($Row.kape_cpu),$($Row.kape_mem),$($Row."7za_cpu"),$($Row."7za_mem"),$($Row.azcopy_cpu),$($Row.azcopy_mem),$($Row.bandwidth)"
+    Write-Host ("{0,20} {1,10} {2,10} {3,10} {4,10} {5,10} {6,10} {7,10}" -f $Row.timestamp,$Row.kape_cpu,$Row.kape_mem,$Row."7za_cpu",$Row."7za_mem",$Row.azcopy_cpu,$Row.azcopy_mem,$Row.bandwidth)
+
+    Start-Sleep -Seconds 1
+} while ($true)
