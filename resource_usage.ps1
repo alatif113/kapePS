@@ -5,7 +5,9 @@ $ProcessList = "kape", "7za", "azcopy"
 Write-Host ("{0,20} {1,10} {2,10} {3,10} {4,10} {5,10} {6,10} {7,10}" -f "time","kape_cpu","kape_mem","7za_cpu","7za_mem","azcopy_cpu","azcopy_mem","bandwidth")
 Write-Host ("{0,20} {1,10} {1,10} {1,10} {1,10} {1,10} {1,10} {1,10}" -f "--------------------","----------")
 
-Clear-Content -Path ./kape_resource_usage.csv
+if (Test-Path "./kape_resource_usage.csv") {
+    Clear-Content -Path ./kape_resource_usage.csv
+}
 Add-Content -Path ./kape_resource_usage.csv -Value "time,kape_cpu,kape_mem,7za_cpu,7za_mem,azcopy_cpu,azcopy_mem,bandwidth"
 
 do {
@@ -31,10 +33,10 @@ do {
         }
 
         $CPUPercent = [Math]::Round(((Get-Counter ($ProcPath -replace "\\id process$","\% Processor Time") -ErrorAction SilentlyContinue).CounterSamples.CookedValue) / $CPUCores)
-        $MemMb = [Math]::Round((Get-Process -Id $ProcId -ErrorAction SilentlyContinue).WorkingSet / 1mb)
+        $MemPercent = [Math]::Round((Get-Process -Id $ProcId -ErrorAction SilentlyContinue).WorkingSet / 1mb)
 
         $Row."$($Process)_cpu" = $CPUPercent
-        $Row."$($Process)_mem" = $MemMb
+        $Row."$($Process)_mem" = $MemPercent
     }
 
     $Interface = Get-CimInstance -class Win32_PerfFormattedData_Tcpip_NetworkInterface | Select-Object BytesTotalPersec, CurrentBandwidth
