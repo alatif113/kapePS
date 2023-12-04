@@ -31,10 +31,10 @@ do {
         }
 
         $CPUPercent = [Math]::Round(((Get-Counter ($ProcPath -replace "\\id process$","\% Processor Time") -ErrorAction SilentlyContinue).CounterSamples.CookedValue) / $CPUCores)
-        $MemPercent = [Math]::Round((Get-Process -Id $ProcId -ErrorAction SilentlyContinue).WorkingSet / 1mb)
+        $MemMb = [Math]::Round((Get-Process -Id $ProcId -ErrorAction SilentlyContinue).WorkingSet / 1mb)
 
         $Row."$($Process)_cpu" = $CPUPercent
-        $Row."$($Process)_mem" = $MemPercent
+        $Row."$($Process)_mem" = $MemMb
     }
 
     $Interface = Get-CimInstance -class Win32_PerfFormattedData_Tcpip_NetworkInterface | Select-Object BytesTotalPersec, CurrentBandwidth
