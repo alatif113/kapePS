@@ -31,14 +31,14 @@ do {
         }
 
         $CPUPercent = [Math]::Round(((Get-Counter ($ProcPath -replace "\\id process$","\% Processor Time") -ErrorAction SilentlyContinue).CounterSamples.CookedValue) / $CPUCores)
-        $MemPercent = [Math]::Round(((Get-Process -Id $ProcId -ErrorAction SilentlyContinue).WorkingSet / $TotalMem) * 100)
+        $MemPercent = [Math]::Round((Get-Process -Id $ProcId -ErrorAction SilentlyContinue).WorkingSet / 1mb)
 
         $Row."$($Process)_cpu" = $CPUPercent
         $Row."$($Process)_mem" = $MemPercent
     }
 
     $Interface = Get-CimInstance -class Win32_PerfFormattedData_Tcpip_NetworkInterface | Select-Object BytesTotalPersec, CurrentBandwidth
-    $Row.bandwidth = [Math]::Round($Interface.BytesTotalPersec * 8 / $Interface.CurrentBandwidth * 100)
+    $Row.bandwidth = [Math]::Round($Interface.BytesTotalPersec * 8 / 1mb)
 
     Add-Content -Path ./kape_resource_usage.csv -Value "$($Row.timestamp),$($Row.kape_cpu),$($Row.kape_mem),$($Row."7za_cpu"),$($Row."7za_mem"),$($Row.azcopy_cpu),$($Row.azcopy_mem),$($Row.bandwidth)"
     Write-Host ("{0,20} {1,10} {2,10} {3,10} {4,10} {5,10} {6,10} {7,10}" -f $Row.timestamp,$Row.kape_cpu,$Row.kape_mem,$Row."7za_cpu",$Row."7za_mem",$Row.azcopy_cpu,$Row.azcopy_mem,$Row.bandwidth)
