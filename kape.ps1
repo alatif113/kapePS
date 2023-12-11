@@ -150,7 +150,7 @@ function GetKAPE {
     try {
         Invoke-WebRequest -Uri $RepoLocation -OutFile $KAPE_ARCHIVE_PATH
     } catch {
-        WriteLog -Severity "Error" -Message "Failed to download KAPE to to $KAPE_ARCHIVE_PATH; $_"
+        WriteLog -Severity "Error" -Message "Failed to download KAPE to to $KAPE_ARCHIVE_PATH. $_"
         exit
     }
     WriteLog -Severity "Info" -Message "Downloaded KAPE to to $KAPE_ARCHIVE_PATH"
@@ -160,7 +160,7 @@ function GetKAPE {
     try {
         Expand-Archive -Path $KAPE_ARCHIVE_PATH -DestinationPath $KAPE_WORKING_PATH -Force
     } catch {
-        WriteLog -Severity "Error" -Message "Unable to extract KAPE to $KAPE_WORKING_PATH; $_"
+        WriteLog -Severity "Error" -Message "Unable to extract KAPE to $KAPE_WORKING_PATH. $_"
         exit
     }
     WriteLog -Severity "Info" -Message "Extracted KAPE to $KAPE_INSTALL_PATH"
@@ -284,7 +284,7 @@ if ($PSBoundParameters.ContainsKey('StorageAccount')) {
 
     # If errors, log and exit
     if ($null -ne $ErrorString) {
-        WriteLog -Severity "Error" -Message "Connection test to https://$StorageAccount.blob.core.windows.net/$StorageContainer failed; $ErrorString"
+        WriteLog -Severity "Error" -Message "Connection test to https://$StorageAccount.blob.core.windows.net/$StorageContainer failed. $ErrorString"
         exit
     }
 
@@ -319,7 +319,7 @@ if($PSBoundParameters.ContainsKey('Modules')) {
     # Check modules are valid
     $ValidModules = $False
     ForEach ($Module in $Modules.Split(",")) {
-        $File = @(get-childitem -Path C:\KAPE\kape-master\Modules -Recurse -Filter "$Module.tkape")
+        $File = @(get-childitem -Path C:\KAPE\kape-master\Modules -Recurse -Filter "$Module.mkape")
         if ($File.length -eq 0) {
             WriteLog -Severity "Warn" -Message "$Module is not a valid KAPE module, it will be ignored."
         } else {
@@ -375,7 +375,7 @@ $ScriptBlock = {
         exit
     }
 
-    # If Targets directory not created, something went wrong; exit
+    # If Targets directory not created, something went wrong exit
     if (-not($(Test-Path $KapeTargetsPath))) {
         WriteLog -Severity "Error" -Message " KAPE did not run successfully, $($KapeTargetsPath) is missing, exiting."
         Throw "$($KapeTargetsPath) is missing."
@@ -419,7 +419,7 @@ $ScriptBlock = {
         }
 
         if ($null -ne $ErrorString) {
-            WriteLog -Severity "Error" -Message "Upload to remote storage failed; $ErrorString."
+            WriteLog -Severity "Error" -Message "Upload to remote storage failed. $ErrorString."
             exit
         } else {
             WriteLog -Severity "Info" -Message "Successfully uploaded KAPE outputs to remote storage."
