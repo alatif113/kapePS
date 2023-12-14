@@ -211,6 +211,7 @@ if($FreeSpace -gt $MIN_FREE_SPACE_TARGETS) {
     WriteLog -Severity "Info" -Message "Available space of $($FreeSpace.ToString('0,0')) MB meets threshold of $($MIN_FREE_SPACE_TARGETS.ToString('0,0')) MB for KAPE targets."
 } else {
     WriteLog -Severity "Error" -Message "Available space of $($FreeSpace.ToString('0,0')) MB is less than the required threshold of $($MIN_FREE_SPACE_TARGETS.ToString('0,0')) MB for KAPE targets, exiting."
+    exit
 }
 
 # get KAPE if it doesnt already exist or binaries are missing
